@@ -1,0 +1,59 @@
+# Ryan Rife 000870626
+
+# Create a PowerShell script to restore the SQL Server and Active Directory
+
+# Create an Active Directory organizational unit (OU) named “finance.”
+New-ADOrganizationalUnit -Name "finance" -Path "dc=consultingfirm,dc=com"
+
+# Import the financePersonnel.csv file into Active Directory domain and directly into finance OU
+$OrganizationalUnit = "ou=finance,dc=consultingfirm,dc=com"
+Import-Csv -Path "$PSScriptRoot\financePersonnel.csv" | foreach {
+New-ADUser -Name $_.Name -GivenName $_.FirstName -Surname $_.LastName -DisplayName "$($_.FirstName) $($_.LastName)" -PostalCode $_.PostalCode -OfficePhone $_.OfficePhone -MobilePhone $_.MobilePhone -Path $OrganizationalUnit -Enabled $true
+}
+
+# Create a new database on Microsoft SQL server instance called “ClientDB.”
+$Server = 'localhost\SQLEXPRESS'
+$Database = 'ClientDB'
+$Query = "CREATE DATABASE $Database"
+
+# Create a new table and name it “Client_A_Contacts.”
+$TableName = 'Client_A_Contacts'
+$Query = @"
+USE $Database
+CREATE TABLE $TableName (
+    [ID] INT IDENTITY (1,1) NOT NULL, 
+    [FirstName] NVARCHAR(50) NULL, 
+    [LastName] NVARCHAR(50) NULL, 
+    [PostalCode] NVARCHAR(15) NULL, 
+    [OfficePhone] NVARCHAR(15) NULL, 
+    [MobilePhone] NVARCHAR(15) NULL
+)
+"@
+
+# Insert the data from the “NewClientData.csv” file into the table
+$TableName = 'Client_A_Contacts'
+$Query = @"
+USE $Database
+BULK INSERT $TableName
+FROM '$PSScriptRoot\NewClientData.csv'
+WITH
+(
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '\n'
+)
+"@
+
+# Apply exception handling using try-catch for System.OutOfMemoryException
+try
+{
+    # Run the script
+    Invoke-Sqlcmd -ServerInstance $Server -Query $Query
+}
+catch [System.OutOfMemoryException]
+{
+    # Handle exception
+}
+
+# Run the cmdlets individually from within the Requirements2 directory
+Get-ADUser -Filter * -SearchBase "ou=finance,dc=consultingfirm,dc=com" -Properties DisplayName,PostalCode,OfficePhone,MobilePhone > .\AdResults.txt
+Invoke-Sqlcmd -Database ClientDB –ServerInstance .\SQLEXPRESS -Query 'SELECT * FROM dbo.Client_A_Contacts' > .\SqlResults.txt
